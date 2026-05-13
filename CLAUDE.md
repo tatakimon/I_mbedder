@@ -151,6 +151,8 @@ The shared status file `status.json` is written by the agent at each stage trans
 **sigrok_monitor.py** reads LA signals + decodes UART + writes `uart_last` to `status.json` on every capture iteration.
 **stage_monitor.py** reads stage + progress + detail + `uart_last` from `status.json`.
 
+**UART verification is pattern-agnostic** — the LA decode is the ground truth. Any printable ASCII string at the expected baud rate = valid output. Do NOT hardcode sensor names or expected strings in verification logic. The user may ask for any sensor combination; only the format (115200 8N1) is fixed.
+
 ---
 
 ## LEGO BLOCK 5: Build & Flash
@@ -190,7 +192,7 @@ uart_line = status.get('uart_last', '')
 ```
 
 Agent verification: parse `uart_last` from `status.json` instead of opening COM5.
-Do NOT use `serial.Serial('COM5', ...)` while TeraTerm has the port open.
+Do NOT hardcode sensor names or expected values in any verification step. The agent must accept any non-empty printable ASCII string as valid UART output. Sensor type is determined by the user's task description, not by a stored pattern.
 
 ---
 
