@@ -6,45 +6,42 @@ You are an expert embedded C firmware engineer operating in a live, autonomous H
 
 ## MONITORING WINDOWS
 
-Three windows run in parallel during every session — all visible simultaneously so the user can follow along:
+Three windows open in parallel during every session:
 
-### Window A — PulseView (Logic Analyzer GUI)
-Launch: `start pulseview` — shows live LA trace on screen.
-- Probe CH1 (D0 on LA clone) → **PD8** (USART3 TX on B-U585I-IOT02A)
-- Probe GND → board GND
+### Window A — Sigrok Monitor (bit timing + per-byte analysis)
+```
+python C:\Users\kerem\Documents\ImbedderNewTrial_MAI\sigrok_monitor.py
+```
+- Per-byte timing table: sample number, byte value, ASCII, us, gap, accuracy
+- Summary: measured byte period vs expected 86.8µs, accuracy %
+- No box-drawing — clean tabular output, easy to read at a glance
+- Source of truth for signal validation
+
+### Window B — UART Feed (live text, TeraTerm-style)
+```
+python C:\Users\kerem\Documents\ImbedderNewTrial_MAI\uart_feed.py
+```
+- Raw decoded ASCII — same as what TeraTerm shows on COM5
+- No formatting, just the text stream, e.g. `Temp: 33.5 C`
+- Agent reads from `status.json → uart_last` — do NOT use pyserial (TeraTerm locks COM5)
+- Alternative: open COM5 in TeraTerm at 115200 baud manually
+
+### Window C — PulseView (waveform + protocol decode, GUI reference)
+```
+start pulseview
+```
+- Probe CH1 (D1 on LA) → PD8, GND → board GND
 - Decode: UART @ 115200 8N1 on CH1
-- User sees waveform + decoded bytes live on screen
-- Agent reads signal data via `sigrok-cli --scan` + `sigrok-cli --driver fx2lafw:conn=2.22 ...` for programmatic analysis
+- Best for visual waveform verification, zoom, and protocol inspection
+- Reference — sigrok_monitor.py is the agent-facing tool, PulseView is the human reference
 
-### Window B — TeraTerm (Live UART Feed)
-Launch: open COM5 (STLink VCP) in TeraTerm — shows UART text output live.
-- USART1 (115200 8N1) on COM5 = human-readable sensor stream
-- Same data also appears on USART3 TX (PD8) = LA probe point
-- User sees: `Accel: X=-27 Y=-281 Z=978 | Temp: 35.2 C | ToF: 2018 mm`
-
-### Window C — Stage Monitor (CLI Terminal)
-```cmd
+### Window D — Stage Monitor (workflow pipeline)
+```
 python C:\Users\kerem\Documents\ImbedderNewTrial_MAI\stage_monitor.py
 ```
-```
-╔══════════════════════════════════════════════════════╗
-║  STM32 Hybrid HIL — Stage Monitor                    ║
-╠══════════════════════════════════════════════════════╣
-║  [████████████░░░░░░░░░░░░░░░░]  60%               ║
-║  Stage:  BUILD                                     ║
-║  Detail: arm-none-eabi-gcc main.c                  ║
-║  Tick:   00:01:23                                  ║
-║                                                    ║
-║  ┌─────────────────────────────────────────────┐  ║
-║  │ ● TEMPLATE_SELECT   ○ CLEAN_SLATE           │  ║
-║  │ ● CODE_INJECT       ○ FLASH                 │  ║
-║  │ ● UART_VERIFY       ○ DONE                  │  ║
-║  └─────────────────────────────────────────────┘  ║
-╚══════════════════════════════════════════════════════╝
-```
-
-The agent updates `status.json` at each stage transition — Window C reads it and renders the pipeline.
-The user sees all three windows simultaneously: waveform on PulseView, text on TeraTerm, stage on CLI.
+- Shows pipeline stage, progress bar, elapsed time
+- Displays last UART line and LA capture count from `status.json`
+- Agent updates `status.json` at each stage transition
 
 ---
 
@@ -84,8 +81,9 @@ Shows: `fx2lafw:conn=N - Saleae Logic [S/N: Saleae Logic] with 8 channels: D0 D1
 ## LEGO BLOCK 1: Memory & State Tracking
 
 **On every session start:**
-1. Launch Window C (stage monitor): `python stage_monitor.py`
-2. Read memory files:
+1. Launch Window A (sigrok_monitor) and Window B (uart_feed): both read LA data
+2. Launch Window D (stage_monitor): `python stage_monitor.py`
+3. Read memory files:
    - `.claude/memory/lessons_learned.md` — hardware quirks, sensor pins, I2C init order
    - `.claude/memory/reference_working_main.md` — working code patterns
    - `.claude/memory/project_stm32_hil.md` — active directory, toolchain paths
