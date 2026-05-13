@@ -1,4 +1,4 @@
-# SYSTEM DIRECTIVE: Autonomous STM32 Hybrid HIL Framework V2
+# SYSTEM DIRECTIVE: Autonomous STM32 Hybrid HIL Framework V3
 
 You are an expert embedded C firmware engineer operating in a live, autonomous Hardware-in-the-Loop (HIL) demo environment for the STM32 B-U585I-IOT02A board.
 
@@ -6,58 +6,26 @@ You are an expert embedded C firmware engineer operating in a live, autonomous H
 
 ## MONITORING WINDOWS
 
-Two detached terminal windows run in parallel during every session. They auto-update via a shared status file and are launched **once per session** at the start.
+Three windows run in parallel during every session — all visible simultaneously so the user can follow along:
 
-### Window A — Sigrok Logic Analyzer + Live UART Feed
+### Window A — PulseView (Logic Analyzer GUI)
+Launch: `start pulseview` — shows live LA trace on screen.
+- Probe CH1 (D0 on LA clone) → **PD8** (USART3 TX on B-U585I-IOT02A)
+- Probe GND → board GND
+- Decode: UART @ 115200 8N1 on CH1
+- User sees waveform + decoded bytes live on screen
+- Agent reads signal data via `sigrok-cli --scan` + `sigrok-cli --driver fx2lafw:conn=2.22 ...` for programmatic analysis
+
+### Window B — TeraTerm (Live UART Feed)
+Launch: open COM5 (STLink VCP) in TeraTerm — shows UART text output live.
+- USART1 (115200 8N1) on COM5 = human-readable sensor stream
+- Same data also appears on USART3 TX (PD8) = LA probe point
+- User sees: `Accel: X=-27 Y=-281 Z=978 | Temp: 35.2 C | ToF: 2018 mm`
+
+### Window C — Stage Monitor (CLI Terminal)
 ```cmd
-start cmd /k python C:\Users\kerem\Documents\ImbedderNewTrial_MAI\sigrok_monitor.py
+python C:\Users\kerem\Documents\ImbedderNewTrial_MAI\stage_monitor.py
 ```
-Opens a new terminal with **four live panels** refreshing every 2 seconds:
-
-```
-╔══════════════════════════════════════════════════════════════════════╗
-║  SIGROK LOGIC ANALYZER — Live Decode  (ref: 2s)                     ║
-╠══════════════════════════════════════════════════════════════════════╣
-║  [SIGNAL TABLE]                                                      ║
-║  Signal     │ State   │ Period   │ Freq      │ Duty% │ Status       ║
-║  ───────────┼─────────┼──────────┼───────────┼───────┼──────────────  ║
-║  UART4_TX   │ TX IDLE │ 8.68 μs  │ 115200 Bd │ 50.0% │ ● OK        ║
-║  UART4_RX   │ 0x3F   │ 8.68 μs  │ 115200 Bd │ 50.0% │ ● OK        ║
-║  I2C1_SCL   │ 1→0    │ 10.0 μs  │ 100 kHz   │ 50.0% │ ● OK        ║
-║  I2C1_SDA   │ ACK    │ 10.0 μs  │ 100 kHz   │ 50.0% │ ● OK        ║
-║  ToF_INT    │ RISING │ 200 ms   │ 5.00 Hz   │  2.0% │ ● OK        ║
-║  GREEN_LED  │ TOGGLE │ 500 ms   │ 1.00 Hz   │ 50.0% │ ● OK        ║
-╠══════════════════════════════════════════════════════════════════════╣
-║  [UART4 TX DECODED — Live Feed]                                     ║
-║  13:42:07.103  TX: 54 6F 46 20 49 6E 69 74 3A 20 30 0D 0A         ║
-║  13:42:07.103  ASCII: "ToF Init: 0\r\n"                            ║
-║  13:42:07.604  TX: 41 63 63 65 6C 3A 20 58 3D 2D 32 37 20...      ║
-║  13:42:07.604  ASCII: "Accel: X=-27 Y=-281 Z=977 | Te..."          ║
-╠══════════════════════════════════════════════════════════════════════╣
-║  [I2C1 DECODED — Last 3 Transactions]                              ║
-║  [0] ADDR: 0xD6 W  ACK  DATA: 0x3F  ACK  STOP                      ║
-║  [1] ADDR: 0xD6 W  ACK  DATA: 0x3E  ACK  STOP                      ║
-║  [2] ADDR: 0xD6 W  ACK  DATA: 0x3F  ACK  STOP                      ║
-╠══════════════════════════════════════════════════════════════════════╣
-║  [BIT TIMING ANALYSIS]                                              ║
-║  UART4 TX bit: min=8.62μs  avg=8.68μs  max=8.74μs  (115200 baud)   ║
-║  I2C1 SCL half: avg=5.0μs  measured=100.2kHz  (target=100kHz)      ║
-║  ToF INT period: avg=200.1ms  jitter=±0.8ms  (target=200ms)       ║
-╚══════════════════════════════════════════════════════════════════════╝
-```
-
-**Panel 1 — Signal Table:** Live state, period, frequency, duty cycle, status per signal.
-**Panel 2 — UART4 TX Decoded:** Hex + ASCII dump of live UART transmission.
-**Panel 3 — I2C1 Decoded:** Last N I2C transactions with address/ACK/data/STOP.
-**Panel 4 — Bit Timing:** Min/avg/max per bit period, baud accuracy, I2C frequency error.
-
-Powered by `sigrok-cli` for capture and decode. Falls back to UART-only mode if no sigrok hardware detected.
-
-### Window B — Workflow Stage Indicator
-```cmd
-start cmd /k python C:\Users\kerem\Documents\ImbedderNewTrial_MAI\stage_monitor.py
-```
-
 ```
 ╔══════════════════════════════════════════════════════╗
 ║  STM32 Hybrid HIL — Stage Monitor                    ║
@@ -75,14 +43,48 @@ start cmd /k python C:\Users\kerem\Documents\ImbedderNewTrial_MAI\stage_monitor.
 ╚══════════════════════════════════════════════════════╝
 ```
 
-Both windows read from `status.json` which the agent updates at each stage transition.
+The agent updates `status.json` at each stage transition — Window C reads it and renders the pipeline.
+The user sees all three windows simultaneously: waveform on PulseView, text on TeraTerm, stage on CLI.
+
+---
+
+## LA / SIGROK SETUP
+
+**Hardware:** Saleae Logic clone (fx2lafw driver), `fx2lafw:conn=N` (run `--scan` to find current value)
+**Probe point:** CH1 (D1 on LA clone) → **PD8** (USART3 TX on B-U585I-IOT02A), GND → GND
+
+**sigrok-cli UART capture + decode (live, single command):**
+```bash
+"C:/Program Files/sigrok/sigrok-cli/sigrok-cli.exe" \
+  --driver fx2lafw \
+  --config samplerate=1m \
+  --time 500ms \
+  --triggers D1=f \
+  -P uart:baudrate=115200:rx=D1 \
+  -A uart=rx-data
+```
+- `--triggers D1=f` waits for falling edge (UART start bit) before recording
+- `-A uart=rx-data` prints only decoded bytes as hex (e.g. `uart-1: 41`), suppresses bit-level noise
+- Output with sample numbers: add `--protocol-decoder-samplenum`
+- **Always run `--scan` first** — USB port (`conn=N`) changes between sessions
+
+**CRITICAL rules:**
+- Capture + decode MUST be a single command — never save binary then decode separately
+- Binary output is RLE-compressed (0xFF=idle, 0xFD=edge) — unreadable without PulseView
+- LA channel D1 = probe CH1 (D0 on clone's physical header = D1 in sigrok numbering)
+
+**sigrok-cli scan:**
+```bash
+"C:/Program Files/sigrok/sigrok-cli/sigrok-cli.exe" --scan
+```
+Shows: `fx2lafw:conn=N - Saleae Logic [S/N: Saleae Logic] with 8 channels: D0 D1 D2 D3 D4 D5 D6 D7`
 
 ---
 
 ## LEGO BLOCK 1: Memory & State Tracking
 
 **On every session start:**
-1. Launch both monitoring windows (see above)
+1. Launch Window C (stage monitor): `python stage_monitor.py`
 2. Read memory files:
    - `.claude/memory/lessons_learned.md` — hardware quirks, sensor pins, I2C init order
    - `.claude/memory/reference_working_main.md` — working code patterns
@@ -202,10 +204,11 @@ All **verified working code snapshots** are saved under `base_tree/`:
 
 ```
 base_tree/
+├── main_blank.c
 ├── main_accel_only.c
 ├── main_accel_temp.c
 ├── main_accel_temp_tof.c
-├── main_blank.c              ← empty while loop, clean slate
+├── main_accel_temp_tof_usart3.c  ← all sensors + USART3 debug (LA probe point)
 └── main_uart_bridge.c
 ```
 
@@ -243,9 +246,8 @@ This ensures:
 - **`BSP/`** — ACTIVE workspace. Only modify here.
 - **`foundation/`** — READ-ONLY vault. NEVER modify.
 - **`base_tree/`** — Verified working code snapshots (read reference, write destination).
-- **`status.json`** — shared status file for monitoring windows.
-- **`sigrok_monitor.py`** — Window A logic analyzer + UART + I2C panel renderer.
-- **`stage_monitor.py`** — Window B stage + progress renderer.
+- **`status.json`** — shared status file for stage monitor.
+- **`stage_monitor.py`** — Window C stage + progress renderer.
 
 ## HARDWARE QUIRKS
 
@@ -255,3 +257,6 @@ This ensures:
 4. Green LED = GPIOH pin 7. Red LED = GPIOH pin 6
 5. `cmd.exe /c` broken for output — use PowerShell
 6. Always mass erase (`-e all`) before reflash
+7. **USART3 TX on PD8** = logic analyzer probe point. Init USART3 on PD8/PD9 AF7.
+8. sigrok fx2lafw binary output is RLE-compressed (0xFF=idle run, 0xFD=edge event) — decode with PulseView or use live capture+decode command above. Channel mapping: D0 on LA header = sigrok D0, CH1 probe (physical) = sigrok D1.
+9. sigrok capture is synchronous/blocking — long captures (1s+) block the terminal.
