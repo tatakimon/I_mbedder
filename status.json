@@ -1,0 +1,12 @@
+{
+  "stage": "IDLE",
+  "progress": 0,
+  "detail": "Awaiting task prompt...",
+  "stage_start": null,
+  "sigrok_iteration": 0,
+  "sigrok_timestamp": null,
+  "uart_last": "",
+  "i2c_last": "",
+  "signals": {},
+  "timestamp": null
+}

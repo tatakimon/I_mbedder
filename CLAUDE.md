@@ -142,13 +142,14 @@ The shared status file `status.json` is written by the agent at each stage trans
     "GREEN_LED":  {"state": "TOGGLE",   "period_ms": 500,  "freq_hz": 1,       "duty_pct": 50.0, "status": "OK"}
   },
   "uart_last": "Accel: X=-27 Y=-281 Z=978 | Temp: 35.2 C | ToF: 2018 mm",
-  "i2c_last": "ADDR:0xD6 W ACK DATA:0x3F ACK STOP",
-  "timestamp": "2026-04-27T13:42:07"
+  "sigrok_iteration": 3,
+  "sigrok_timestamp": "14:23:01",
+  "timestamp": "2026-05-13T14:23:01"
 }
 ```
 
-**sigrok_monitor.py** reads signals + uart_last + i2c_last from this file and renders the panels.
-**stage_monitor.py** reads stage + progress + detail + timestamp.
+**sigrok_monitor.py** reads LA signals + decodes UART + writes `uart_last` to `status.json` on every capture iteration.
+**stage_monitor.py** reads stage + progress + detail + `uart_last` from `status.json`.
 
 ---
 
@@ -177,24 +178,19 @@ HAL_UART_Transmit(&huart1, msg, len, HAL_MAX_DELAY);
 
 ---
 
-## LEGO BLOCK 6: UART Telemetry (Verification Loop)
+## LEGO BLOCK 6: UART Telemetry (sigrok-cli — source of truth)
 
-Python listener that also writes last UART line to `status.json`:
+**Use sigrok-cli, not pyserial** — TeraTerm locks COM5, preventing pyserial access.
+sigrok_monitor.py decodes UART via LA and writes `uart_last` to `status.json`.
 
 ```python
-import serial, time, json
-ser = serial.Serial('COM5', 115200, timeout=5)
-time.sleep(2)
-for _ in range(6):
-    data = ser.read(200)
-    if data:
-        decoded = data.decode('ascii', errors='replace').strip()
-        print(decoded)
-        status = json.load(open('status.json'))
-        status['uart_last'] = decoded
-        json.dump(status, open('status.json', 'w'))
-ser.close()
+# Read UART from status.json (populated by sigrok_monitor.py via LA decode):
+status = json.load(open('status.json'))
+uart_line = status.get('uart_last', '')
 ```
+
+Agent verification: parse `uart_last` from `status.json` instead of opening COM5.
+Do NOT use `serial.Serial('COM5', ...)` while TeraTerm has the port open.
 
 ---
 
