@@ -41,16 +41,17 @@ def append_log(filepath, line):
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
-SIGROK_CLI   = "C:/Program Files/sigrok/sigrok-cli/sigrok-cli.exe"
-STATUS_FILE  = "C:/Users/kerem/Documents/ImbedderNewTrial_MAI/status.json"
-LOG_FILE     = "C:/Users/kerem/Documents/ImbedderNewTrial_MAI/sigrok_log.txt"
-SAMPLERATE   = "1m"
-CAPTURE_TIME = "500ms"
-UART_BAUD    = 115200
-REFRESH_SEC  = 3.0
-SR_HZ        = 1_000_000.0
-BIT_US       = 1_000_000.0 / UART_BAUD
-BYTE_US      = 10 * BIT_US
+SIGROK_CLI     = "C:/Program Files/sigrok/sigrok-cli/sigrok-cli.exe"
+STATUS_FILE    = "C:/Users/kerem/Documents/ImbedderNewTrial_MAI/status.json"
+LOG_FILE       = "C:/Users/kerem/Documents/ImbedderNewTrial_MAI/sigrok_log.txt"
+SAMPLERATE     = "1m"
+CAPTURE_TIME   = "500ms"
+UART_BAUD      = 115200
+REFRESH_SEC    = 3.0
+SR_HZ          = 1_000_000.0
+BIT_US         = 1_000_000.0 / UART_BAUD
+BYTE_US        = 10 * BIT_US
+IDLE_THRESH_US = 1000          # 1 ms — gaps larger than this are inter-frame idle
 
 
 def clear():
@@ -117,7 +118,7 @@ def render(ts, iteration, pairs, error):
     lines = []
 
     # --- Header ---
-    lines.append(f"[{ts}] sigrok_monitor  iter={iteration}  rate={SR_HZ/1e6:.0f}MHz  capture={CAPTURE_TIME}  trigger=D1:f")
+    lines.append(f"[{ts}] sigrok_monitor  iter={iteration}  rate={SR_HZ/1e6:.0f}MHz  capture={CAPTURE_TIME}  trigger=D1:f  idle_thresh={IDLE_THRESH_US}us")
     lines.append("")
 
     if error:
@@ -130,54 +131,99 @@ def render(ts, iteration, pairs, error):
         lines.append(f"Baud: {UART_BAUD} 8N1  |  refresh every {REFRESH_SEC}s")
         return "\n".join(lines)
 
-    # --- Decoded text ---
-    hex_str = " ".join(f"{v:02X}" for _, v in pairs)
-    ascii_str = "".join(chr(v) if 32 <= v < 127 else "." for _, v in pairs)
-    ascii_str = ascii_str.replace("\r", " ").replace("\n", " ")
-    lines.append(f"TEXT : {ascii_str}")
+    # -------------------------------------------------------------------------
+    # Compute gap_us for each byte (from previous byte's sample number)
+    # -------------------------------------------------------------------------
+    enriched = []
+    for i, (sample, val) in enumerate(pairs):
+        if i == 0:
+            gap_us = 0
+        else:
+            gap_us = sample - pairs[i - 1][0]
+        enriched.append((sample, val, gap_us))
+
+    # -------------------------------------------------------------------------
+    # Identify frames: split at gaps > IDLE_THRESH_US
+    # Each frame = consecutive bytes within a single UART burst
+    # -------------------------------------------------------------------------
+    frames = []
+    frame = []
+    for sample, val, gap_us in enriched:
+        if gap_us > IDLE_THRESH_US and frame:
+            frames.append(frame)
+            frame = []
+        frame.append((sample, val, gap_us))
+    if frame:
+        frames.append(frame)
+
+    # -------------------------------------------------------------------------
+    # TEXT reconstruction: separate frames with " | ", strip 0xFF, strip control chars
+    # -------------------------------------------------------------------------
+    frame_texts = []
+    for frame in frames:
+        chars = []
+        for _, val, gap_us in frame:
+            if val == 0xFF:
+                continue  # filter idle-line glitch
+            if 32 <= val < 127:
+                chars.append(chr(val))
+            elif val in (0x0D, 0x0A):
+                chars.append(".")
+        frame_texts.append("".join(chars))
+    text_str = " | ".join(frame_texts)
+
+    hex_str = " ".join(f"{v:02X}" for _, v, _ in enriched)
+    lines.append(f"TEXT : {text_str}")
     lines.append(f"HEX  : {hex_str}")
-    lines.append(f"BYTES: {len(pairs)} chars decoded")
+    lines.append(f"FRAMES: {len(frames)}  BYTES: {len(pairs)}")
+    lines.append(f"IDLE_THRESH: {IDLE_THRESH_US} us  (gaps above this are inter-frame, excluded from accuracy)")
     lines.append("")
 
-    # --- Per-byte timing table ---
+    # -------------------------------------------------------------------------
+    # Per-byte timing table — shows all bytes so gaps > threshold are visible
+    # accuracy column shows -- for inter-frame gaps
+    # -------------------------------------------------------------------------
     lines.append("PER-BYTE TIMING (1 MHz = 1 us/sample)")
-    lines.append(f"{'#':>3}  {'B':>3}  {'ASCII':>5}  {'us@1MHz':>9}  {'us':>8}  gap_us   accuracy")
-    lines.append("-" * 58)
+    lines.append(f"{'#':>3}  {'B':>4}  {'ASCII':>5}  {'sample':>9}  {'us':>7}  {'gap_us':>8}  accuracy")
+    lines.append("-" * 62)
 
-    gaps = []
-    for i, (sample, val) in enumerate(pairs):
+    for i, (sample, val, gap_us) in enumerate(enriched):
         ascii_c = chr(val) if 32 <= val < 127 else "."
-        abs_us = sample  # 1 sample = 1 us @ 1MHz
 
-        if i == 0:
+        if gap_us == 0:
             gap_disp = "  --  "
             acc_disp = "  --  "
+        elif gap_us > IDLE_THRESH_US:
+            gap_disp = f"{gap_us:>6.0f}*"   # mark inter-frame gap
+            acc_disp = "  --  "              # don't compute accuracy for idle
         else:
-            gap_us = sample - pairs[i-1][0]
-            gaps.append(gap_us)
             acc_pct = abs(gap_us - BYTE_US) / BYTE_US * 100
             gap_disp = f"{gap_us:>6.1f}"
             acc_disp = f"{acc_pct:>5.1f}%"
 
         lines.append(
-            f"{i+1:>3}  0x{val:02X}  {ascii_c!r:>5}  "
-            f"{sample:>9}  {abs_us:>7.0f}us  {gap_disp}   {acc_disp}"
+            f"{i+1:>3}  0x{val:02X}  {ascii_c!r:>5}  {sample:>9}  "
+            f"{sample:>7.0f}us  {gap_disp}  {acc_disp}"
         )
 
-    # --- Summary ---
-    if gaps:
-        mn  = min(gaps)
-        mx  = max(gaps)
-        avg = sum(gaps) / len(gaps)
+    # -------------------------------------------------------------------------
+    # Summary — accuracy based only on intra-frame gaps (below threshold)
+    # -------------------------------------------------------------------------
+    intra_gaps = [g for _, _, g in enriched if g > 0 and g <= IDLE_THRESH_US]
+    if intra_gaps:
+        mn  = min(intra_gaps)
+        mx  = max(intra_gaps)
+        avg = sum(intra_gaps) / len(intra_gaps)
         acc = abs(avg - BYTE_US) / BYTE_US * 100
         lines.append("")
+        lines.append(f"INTRA-FRAME GAPS (gaps <= {IDLE_THRESH_US} us): {len(intra_gaps)}")
         lines.append(f"EXPECTED BYTE PERIOD : {BYTE_US:.1f} us (10 bits @ {UART_BAUD} baud)")
         lines.append(f"MEASURED BYTE PERIOD: min={mn:.1f}us  avg={avg:.1f}us  max={mx:.1f}us")
         lines.append(f"ACCURACY             : {'OK' if acc < 2 else 'CHECK BAUD'}  (avg error = {acc:.1f}%)")
         lines.append(f"BIT TIME             : {BIT_US:.2f} us")
     else:
         lines.append("")
-        lines.append(f"(need 2+ bytes for gap/timing analysis)")
+        lines.append("(no intra-frame gaps — firmware may be sending single bytes)")
 
     return "\n".join(lines)
 
@@ -206,11 +252,36 @@ def run():
 
         pairs = capture_with_timing()
 
-        # Build display text from decoded bytes
+        # Build display text from frames, strip 0xFF, separate with |
         if pairs:
-            ascii_str = "".join(chr(v) if 32 <= v < 127 else "." for _, v in pairs)
-            ascii_str = ascii_str.replace("\r", " ").replace("\n", " ")
-            write_status("uart_last", ascii_str[:80])
+            enriched = []
+            for i, (sample, val) in enumerate(pairs):
+                gap_us = 0 if i == 0 else sample - pairs[i - 1][0]
+                enriched.append((sample, val, gap_us))
+
+            frames = []
+            frame = []
+            for sample, val, gap_us in enriched:
+                if gap_us > IDLE_THRESH_US and frame:
+                    frames.append(frame)
+                    frame = []
+                frame.append((sample, val, gap_us))
+            if frame:
+                frames.append(frame)
+
+            frame_texts = []
+            for f in frames:
+                chars = []
+                for _, val, _ in f:
+                    if val == 0xFF:
+                        continue
+                    if 32 <= val < 127:
+                        chars.append(chr(val))
+                    elif val in (0x0D, 0x0A):
+                        chars.append(".")
+                frame_texts.append("".join(chars))
+            text_str = " | ".join(frame_texts)
+            write_status("uart_last", text_str[:80])
             last_text = ascii_str
 
         clear()
