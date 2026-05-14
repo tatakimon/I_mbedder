@@ -1,12 +1,10 @@
 {
-  "stage": "IDLE",
-  "progress": 0,
-  "detail": "Awaiting task prompt...",
-  "stage_start": null,
-  "sigrok_iteration": 0,
-  "sigrok_timestamp": null,
-  "uart_last": "",
-  "i2c_last": "",
-  "signals": {},
-  "timestamp": null
+  "stage": "DONE",
+  "progress": 100,
+  "detail": "Accelerometer firmware verified \u00e2\u20ac\u201d X=-90 Y=-63 Z=-980 at 500ms poll",
+  "uart_last": "PK-89 Y=-63 Z=-979..",
+  "sigrok_iteration": 207,
+  "sigrok_timestamp": "13:29:01",
+  "timestamp": "2026-05-14T00:00:00",
+  "stage_start": "2026-05-14T13:25:03.357799"
 }

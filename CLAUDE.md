@@ -233,6 +233,39 @@ This ensures:
 5. Save verified result to base_tree/
 ```
 
+---
+
+## LEGO BLOCK 8: Log File Verification (Close Loop)
+
+**After flash, always read the three log files to confirm all monitors captured data correctly.**
+
+```bash
+# sigrok_log.txt — LA timing analysis
+python -c "
+lines = open('sigrok_log.txt').read().splitlines()
+for l in lines[-20:]: print(l)
+"
+
+# uart_log.txt — live UART stream
+python -c "
+lines = open('uart_log.txt').read().splitlines()
+for l in lines[-20:]: print(l)
+"
+
+# build_log.txt — compile result
+python -c "
+lines = open('build_log.txt').read().splitlines()
+for l in lines: print(l)
+"
+```
+
+**Success criteria (all three must pass):**
+- `sigrok_log.txt`: ACCURACY = OK, non-empty PER-BYTE table, TEXT shows expected sensor string
+- `uart_log.txt`: 50 rolling lines of sensor output, no corruption
+- `build_log.txt`: `Finished building target: BSP.elf`, exit code 0
+
+**If any log is missing or shows errors:** Investigate before reporting success to user.
+
 **Window A/B behavior:** `status.json.stage = "IDLE"` during reset phase, then updates to actual stage. Previous task's UART lines do not linger in the monitor.
 
 ---
