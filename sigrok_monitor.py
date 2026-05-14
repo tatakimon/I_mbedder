@@ -14,15 +14,43 @@ import time
 import re
 from datetime import datetime
 
+# ---------------------------------------------------------------------------
+# Circular buffer log helper — max 50 lines, overwrites oldest
+# ---------------------------------------------------------------------------
+MAX_LOG_LINES = 50
+
+
+def append_log(filepath, line):
+    """Write line to filepath, keep only the newest MAX_LOG_LINES."""
+    lines = []
+    if os.path.exists(filepath):
+        try:
+            with open(filepath, "r", encoding="utf-8", errors="replace") as f:
+                lines = f.read().splitlines()
+        except Exception:
+            lines = []
+    lines.append(line.rstrip())
+    lines = lines[-MAX_LOG_LINES:]
+    try:
+        with open(filepath, "w", encoding="utf-8") as f:
+            f.write("\n".join(lines) + "\n")
+    except Exception:
+        pass
+
+
+# ---------------------------------------------------------------------------
+# Configuration
+# ---------------------------------------------------------------------------
 SIGROK_CLI   = "C:/Program Files/sigrok/sigrok-cli/sigrok-cli.exe"
 STATUS_FILE  = "C:/Users/kerem/Documents/ImbedderNewTrial_MAI/status.json"
+LOG_FILE     = "C:/Users/kerem/Documents/ImbedderNewTrial_MAI/sigrok_log.txt"
 SAMPLERATE   = "1m"
 CAPTURE_TIME = "500ms"
 UART_BAUD    = 115200
 REFRESH_SEC  = 3.0
-SR_HZ        = 1_000_000.0          # 1 MHz
-BIT_US       = 1_000_000.0 / UART_BAUD   # 8.68 us
-BYTE_US      = 10 * BIT_US               # 86.8 us
+SR_HZ        = 1_000_000.0
+BIT_US       = 1_000_000.0 / UART_BAUD
+BYTE_US      = 10 * BIT_US
 
 
 def clear():
@@ -187,8 +215,13 @@ def run():
 
         clear()
         panel = render(ts, iteration, pairs, None)
-        print(panel)
-        print(f"\n  iter={iteration}  next in {REFRESH_SEC}s  [Ctrl+C to stop]")
+        # Log to file + print to console
+        for line in panel.splitlines():
+            print(line)
+            append_log(LOG_FILE, line)
+        footer = f"\n  iter={iteration}  next in {REFRESH_SEC}s  [Ctrl+C to stop]"
+        print(footer)
+        append_log(LOG_FILE, footer)
 
         time.sleep(REFRESH_SEC)
 

@@ -20,7 +20,35 @@ import json
 import time
 from datetime import datetime
 
+# ---------------------------------------------------------------------------
+# Circular buffer log helper — max 50 lines, overwrites oldest
+# ---------------------------------------------------------------------------
+MAX_LOG_LINES = 50
+
+
+def append_log(filepath, line):
+    """Write line to filepath, keep only the newest MAX_LOG_LINES."""
+    lines = []
+    if os.path.exists(filepath):
+        try:
+            with open(filepath, "r", encoding="utf-8", errors="replace") as f:
+                lines = f.read().splitlines()
+        except Exception:
+            lines = []
+    lines.append(line.rstrip())
+    lines = lines[-MAX_LOG_LINES:]
+    try:
+        with open(filepath, "w", encoding="utf-8") as f:
+            f.write("\n".join(lines) + "\n")
+    except Exception:
+        pass
+
+
+# ---------------------------------------------------------------------------
+# Configuration
+# ---------------------------------------------------------------------------
 STATUS_FILE     = "C:/Users/kerem/Documents/ImbedderNewTrial_MAI/status.json"
+LOG_FILE        = "C:/Users/kerem/Documents/ImbedderNewTrial_MAI/stage_log.txt"
 REFRESH_SECONDS = 1.0
 
 STAGES = [
@@ -166,7 +194,9 @@ def run_monitor():
 
         clear_screen()
         panel = render(stage, progress, detail, start_str, sigrok_iter)
-        print(panel)
+        for line in panel.splitlines():
+            print(line)
+            append_log(LOG_FILE, line)
         print(f"\n  Refreshing every {REFRESH_SECONDS}s  [Ctrl+C to stop]")
         time.sleep(REFRESH_SECONDS)
 

@@ -11,9 +11,37 @@ import os
 import sys
 import json
 
+# ---------------------------------------------------------------------------
+# Circular buffer log helper — max 50 lines, overwrites oldest
+# ---------------------------------------------------------------------------
+MAX_LOG_LINES = 50
+
+
+def append_log(filepath, line):
+    """Write line to filepath, keep only the newest MAX_LOG_LINES."""
+    lines = []
+    if os.path.exists(filepath):
+        try:
+            with open(filepath, "r", encoding="utf-8", errors="replace") as f:
+                lines = f.read().splitlines()
+        except Exception:
+            lines = []
+    lines.append(line.rstrip())
+    lines = lines[-MAX_LOG_LINES:]
+    try:
+        with open(filepath, "w", encoding="utf-8") as f:
+            f.write("\n".join(lines) + "\n")
+    except Exception:
+        pass
+
+
+# ---------------------------------------------------------------------------
+# Configuration
+# ---------------------------------------------------------------------------
 COM_PORT    = "COM5"
 UART_BAUD   = 115200
 STATUS_FILE = "C:/Users/kerem/Documents/ImbedderNewTrial_MAI/status.json"
+LOG_FILE    = "C:/Users/kerem/Documents/ImbedderNewTrial_MAI/uart_log.txt"
 
 
 def write_status(key, value):
@@ -43,6 +71,8 @@ def run():
             if data:
                 text = data.decode("ascii", errors="replace")
                 print(text, end="", flush=True)
+                for line in text.splitlines(keepends=True):
+                    append_log(LOG_FILE, line)
                 # Strip newlines for status.json display
                 clean = text.replace("\r", " ").replace("\n", " ").strip()
                 if clean:
