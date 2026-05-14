@@ -241,7 +241,6 @@ def run():
     clear()
 
     iteration = 0
-    last_text = ""
 
     while True:
         iteration += 1
@@ -282,7 +281,8 @@ def run():
                 frame_texts.append("".join(chars))
             text_str = " | ".join(frame_texts)
             write_status("uart_last", text_str[:80])
-            last_text = ascii_str
+        else:
+            text_str = ""
 
         clear()
         panel = render(ts, iteration, pairs, None)
