@@ -1,26 +1,19 @@
 """
-uart_feed.py — Window B (TeraTerm alternative)
-Reads UART via LA decode (sigrok-cli) and prints decoded text live.
-No box-drawing, no formatting — just the raw feed like TeraTerm.
-
+uart_feed.py — Window B
+Live UART text feed from COM5 at 115200 baud.
 Run in its own terminal:
     python C:\\Users\\kerem\\Documents\\ImbedderNewTrial_MAI\\uart_feed.py
-
-Press Ctrl+C to stop.
 """
 
-import subprocess
+import serial
 import time
-import re
 import os
 import sys
 import json
 
-SIGROK_CLI   = "C:/Program Files/sigrok/sigrok-cli/sigrok-cli.exe"
-STATUS_FILE  = "C:/Users/kerem/Documents/ImbedderNewTrial_MAI/status.json"
-SAMPLERATE   = "1m"
-CAPTURE_TIME = "500ms"
-UART_BAUD    = 115200
+COM_PORT    = "COM5"
+UART_BAUD   = 115200
+STATUS_FILE = "C:/Users/kerem/Documents/ImbedderNewTrial_MAI/status.json"
 
 
 def write_status(key, value):
@@ -32,45 +25,34 @@ def write_status(key, value):
         pass
 
 
-def decode_lines(stdout_text):
-    """Convert '35-105 uart-1: 54' lines to clean ASCII string."""
-    vals = []
-    for line in stdout_text.splitlines():
-        m = re.search(r"\d+-\d+ uart-1:\s*([0-9A-Fa-f]{2})", line)
-        if m:
-            v = int(m.group(1), 16)
-            vals.append(v)
-    text = "".join(chr(v) if 32 <= v < 127 else "." for v in vals)
-    return vals, text
-
-
 def run():
     os.system("title UART Feed")
-    print("[UART FEED] Starting... make sure firmware is running.")
-    print("[UART FEED] Reading D1 (LA CH1) at 115200 baud. Ctrl+C to stop.\n")
+    print("[UART FEED] Opening COM5 at 115200 baud...")
+    try:
+        ser = serial.Serial(COM_PORT, UART_BAUD, timeout=5)
+        time.sleep(1)  # wait for board to boot and print first line
+        print(f"[UART FEED] Listening on {COM_PORT} {UART_BAUD} baud. Ctrl+C to stop.\n")
+    except serial.SerialException as e:
+        print(f"[UART FEED] ERROR: Cannot open {COM_PORT} — {e}")
+        print("Is TeraTerm or another terminal open on this port? Close it first.")
+        sys.exit(1)
 
-    frame_count = 0
     while True:
-        cmd = [
-            SIGROK_CLI, "--driver", "fx2lafw",
-            "--config", f"samplerate={SAMPLERATE}",
-            "--time",   CAPTURE_TIME,
-            "--triggers", "D1=f",
-            "-P", f"uart:baudrate={UART_BAUD}:rx=D1",
-            "-A", "uart=rx-data",
-        ]
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=8)
-            _, text = decode_lines(result.stdout)
-            if text.strip():
-                frame_count += 1
+            data = ser.read(200)
+            if data:
+                text = data.decode("ascii", errors="replace")
                 print(text, end="", flush=True)
-                write_status("uart_last", text[:80].replace("\r", " ").replace("\n", " "))
-        except subprocess.TimeoutExpired:
-            print("[feed] timeout waiting for data... is the firmware running?")
-        except Exception as e:
-            print(f"[feed] error: {e}")
-        time.sleep(0.5)
+                # Strip newlines for status.json display
+                clean = text.replace("\r", " ").replace("\n", " ").strip()
+                if clean:
+                    write_status("uart_last", clean[:80])
+        except serial.SerialException:
+            print("[UART FEED] Port disconnected.")
+            break
+        except KeyboardInterrupt:
+            print("\n[UART FEED] Stopped.")
+            break
 
 
 if __name__ == "__main__":

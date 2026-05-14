@@ -38,13 +38,33 @@ def write_status(key, value):
         pass
 
 
+def find_la_conn():
+    """Run --scan and extract current fx2lafw conn value."""
+    try:
+        result = subprocess.run(
+            [SIGROK_CLI, "--scan"], capture_output=True, text=True, timeout=5
+        )
+        for line in result.stdout.splitlines():
+            if "fx2lafw" in line and "Saleae Logic" in line:
+                # e.g. "fx2lafw:conn=2.14 - Saleae Logic ..."
+                m = re.search(r"fx2lafw:conn=(\S+)", line)
+                if m:
+                    return m.group(1)
+    except Exception:
+        pass
+    return None
+
+
 def capture_with_timing():
-    """
-    Single sigrok-cli command: capture + decode + sample numbers.
+    """Single sigrok-cli command: scan for LA, capture + decode + sample numbers.
     Returns list of (sample_num, byte_val).
     """
+    conn = find_la_conn()
+    if conn is None:
+        return []
+
     cmd = [
-        SIGROK_CLI, "--driver", "fx2lafw",
+        SIGROK_CLI, "--driver", f"fx2lafw:conn={conn}",
         "--config", f"samplerate={SAMPLERATE}",
         "--time",   CAPTURE_TIME,
         "--triggers", "D1=f",
